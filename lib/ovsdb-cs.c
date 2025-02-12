@@ -641,6 +641,10 @@ ovsdb_cs_run(struct ovsdb_cs *cs, struct ovs_list *events)
                 ovsdb_cs_db_compose_lock_request(&cs->data));
         }
     }
+
+    /* Hack: send gratuitous (unsolicited) echo reply. */
+    jsonrpc_session_gratuitous_echo_reply(cs->session);
+
     const int batch_size = 50;
     bool try_again = true;
     for (int i = 0; i < batch_size; i++) {
