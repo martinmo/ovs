@@ -641,6 +641,7 @@ ovsdb_cs_run(struct ovsdb_cs *cs, struct ovs_list *events)
                 ovsdb_cs_db_compose_lock_request(&cs->data));
         }
     }
+
     const int batch_size = 50;
     for (int i = 0; i < batch_size; i++) {
         struct jsonrpc_msg *msg = jsonrpc_session_recv(cs->session);
@@ -653,6 +654,12 @@ ovsdb_cs_run(struct ovsdb_cs *cs, struct ovs_list *events)
             COVERAGE_INC(ovsdb_cs_run_batch_full);
         }
     }
+
+    /* Send a gratuitous (unsolicited) echo reply if we didn't do it already in
+       the above batch. This is an preemptive activity signal which doesn't hurt the
+       other side. */
+    jsonrpc_session_gratuitous_echo_reply(cs->session);
+
     ovs_list_push_back_all(events, &cs->data.events);
 }
 
