@@ -642,9 +642,17 @@ ovsdb_cs_run(struct ovsdb_cs *cs, struct ovs_list *events)
         }
     }
     const int batch_size = 50;
+    bool try_again = true;
     for (int i = 0; i < batch_size; i++) {
         struct jsonrpc_msg *msg = jsonrpc_session_recv(cs->session);
         if (!msg) {
+            if (try_again) {
+                /* Try once more before leaving the loop, because we may just have
+                   processed an echo request or reply (in that case, msg is returned as
+                   NULL), but there could be more messages in this batch. */
+                try_again = false;
+                continue;
+            }
             break;
         }
         ovsdb_cs_process_msg(cs, msg);
