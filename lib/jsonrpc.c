@@ -21,6 +21,7 @@
 #include <errno.h>
 
 #include "byteq.h"
+#include "coverage.h"
 #include "openvswitch/dynamic-string.h"
 #include "fatal-signal.h"
 #include "openvswitch/json.h"
@@ -36,6 +37,8 @@
 #include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(jsonrpc);
+
+COVERAGE_DEFINE(jsonrpc_gratuitous_echo);
 
 struct jsonrpc {
     struct stream *stream;
@@ -825,6 +828,8 @@ struct jsonrpc_session {
     /* Limits for jsonrpc. */
     size_t max_n_msgs;
     size_t max_backlog_bytes;
+
+    long long int last_echo_reply;
 };
 
 static void
@@ -879,6 +884,7 @@ jsonrpc_session_open_multiple(const struct svec *remotes, bool retry)
     s->seqno = 0;
     s->dscp = 0;
     s->last_error = 0;
+    s->last_echo_reply = 0;
 
     jsonrpc_session_set_backlog_threshold(s, 0, 0);
 
@@ -1194,6 +1200,7 @@ jsonrpc_session_recv(struct jsonrpc_session *s)
 
                 reply = jsonrpc_create_reply(json_clone(msg->params), msg->id);
                 jsonrpc_session_send(s, reply);
+                s->last_echo_reply = now;
             } else if (msg->type == JSONRPC_REPLY
                        && msg->id && msg->id->type == JSON_STRING
                        && !strcmp(msg->id->string, "echo")) {
@@ -1205,6 +1212,36 @@ jsonrpc_session_recv(struct jsonrpc_session *s)
         }
     }
     return NULL;
+}
+
+/* Preemptively send echo reply if we are near the end of the interval. */
+void
+jsonrpc_session_gratuitous_echo_reply(struct jsonrpc_session *s)
+{
+    /* XXX: this is actually the wrong interval (our side's interval) */
+    int probe_interval = reconnect_get_probe_interval(s->reconnect);
+    if (!probe_interval) {
+        return;
+    }
+    /* Send it halfway through the probe interval just to be safe. */
+    int gratuitous_interval = MAX(1000, probe_interval / 2);
+
+    long long int now = time_msec();
+    if (now < s->last_echo_reply + gratuitous_interval) {
+        return;
+    }
+
+    struct json *params = json_array_create_empty();
+    struct json *id = json_string_create("echo");
+    struct jsonrpc_msg *reply = jsonrpc_create_reply(params, id);
+    /* Calling jsonrpc_create_reply() creates a clone of id, so we can
+       destroy it already (this just decreases the reference count again). */
+    json_destroy(id);
+
+    VLOG_DBG("Sending gratuitous echo reply.");
+    jsonrpc_session_send(s, reply);
+    s->last_echo_reply = now;
+    COVERAGE_INC(jsonrpc_gratuitous_echo);
 }
 
 void
