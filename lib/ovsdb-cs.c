@@ -20,6 +20,7 @@
 
 #include <errno.h>
 
+#include "coverage.h"
 #include "hash.h"
 #include "jsonrpc.h"
 #include "openvswitch/dynamic-string.h"
@@ -39,6 +40,8 @@
 #include "uuid.h"
 
 VLOG_DEFINE_THIS_MODULE(ovsdb_cs);
+
+COVERAGE_DEFINE(ovsdb_cs_run_batch_full);
 
 /* Connection state machine.
  *
@@ -644,6 +647,7 @@ ovsdb_cs_run(struct ovsdb_cs *cs, struct ovs_list *events)
         struct jsonrpc_msg *msg = NULL;
         ret = jsonrpc_session_recv(cs->session, &msg);
         if (ret == EAGAIN) {
+            COVERAGE_INC(ovsdb_cs_run_batch_full);
             break;
         }
         /* Even if we would not block we might not receive a message for two
