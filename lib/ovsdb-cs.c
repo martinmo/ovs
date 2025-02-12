@@ -20,6 +20,7 @@
 
 #include <errno.h>
 
+#include "coverage.h"
 #include "hash.h"
 #include "jsonrpc.h"
 #include "openvswitch/dynamic-string.h"
@@ -39,6 +40,8 @@
 #include "uuid.h"
 
 VLOG_DEFINE_THIS_MODULE(ovsdb_cs);
+
+COVERAGE_DEFINE(ovsdb_cs_run_batch_full);
 
 /* Connection state machine.
  *
@@ -638,14 +641,17 @@ ovsdb_cs_run(struct ovsdb_cs *cs, struct ovs_list *events)
                 ovsdb_cs_db_compose_lock_request(&cs->data));
         }
     }
-
-    for (int i = 0; i < 50; i++) {
+    const int batch_size = 50;
+    for (int i = 0; i < batch_size; i++) {
         struct jsonrpc_msg *msg = jsonrpc_session_recv(cs->session);
         if (!msg) {
             break;
         }
         ovsdb_cs_process_msg(cs, msg);
         jsonrpc_msg_destroy(msg);
+        if (i == batch_size - 1) {
+            COVERAGE_INC(ovsdb_cs_run_batch_full);
+        }
     }
     ovs_list_push_back_all(events, &cs->data.events);
 }
