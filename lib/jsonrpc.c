@@ -1180,15 +1180,16 @@ jsonrpc_session_send(struct jsonrpc_session *s, struct jsonrpc_msg *msg)
     }
 }
 
-struct jsonrpc_msg *
-jsonrpc_session_recv(struct jsonrpc_session *s)
+int
+jsonrpc_session_recv(struct jsonrpc_session *s, struct jsonrpc_msg **full_msg)
 {
     if (s->rpc) {
         unsigned int received_bytes;
         struct jsonrpc_msg *msg;
+        int ret;
 
         received_bytes = jsonrpc_get_received_bytes(s->rpc);
-        jsonrpc_recv(s->rpc, &msg);
+        ret = jsonrpc_recv(s->rpc, &msg);
 
         long long int now = time_msec();
         reconnect_receive_attempted(s->reconnect, now);
@@ -1213,12 +1214,15 @@ jsonrpc_session_recv(struct jsonrpc_session *s)
                        && !strcmp(msg->id->string, "echo")) {
                 /* It's a reply to our echo request.  Suppress it. */
             } else {
-                return msg;
+                *full_msg = msg;
+                return 0;
             }
             jsonrpc_msg_destroy(msg);
+        } else {
+            return ret;
         }
     }
-    return NULL;
+    return 0;
 }
 
 /* Preemptively send an echo reply if needed. */
