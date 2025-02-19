@@ -217,7 +217,8 @@ open_rpc(int min_args, enum args_needed need,
             jsonrpc_session_send(js, txn);
         }
 
-        struct jsonrpc_msg *reply = jsonrpc_session_recv(js);
+        struct jsonrpc_msg *reply = NULL;
+        jsonrpc_session_recv(js, &reply);
         if (reply && id && reply->id && json_equal(id, reply->id)) {
             if (reply->type == JSONRPC_REPLY
                 && should_stay_connected(jsonrpc_session_get_name(js),
@@ -2479,7 +2480,8 @@ do_wait(struct jsonrpc *rpc_unused OVS_UNUSED,
             jsonrpc_session_send(js, rq);
         }
 
-        struct jsonrpc_msg *reply = jsonrpc_session_recv(js);
+        struct jsonrpc_msg *reply = NULL;
+        jsonrpc_session_recv(js, &reply);
         if (reply && reply->id) {
             if (sdca_id && json_equal(sdca_id, reply->id)) {
                 if (reply->type == JSONRPC_ERROR) {
