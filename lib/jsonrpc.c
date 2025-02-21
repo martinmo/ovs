@@ -835,7 +835,8 @@ struct jsonrpc_session {
     size_t max_n_msgs;
     size_t max_backlog_bytes;
 
-    long long int last_echo_reply;
+    /* Used to decide whether we need to send a gratuitous echo reply. */
+    long long int last_send_timestamp;
 };
 
 static void
@@ -890,7 +891,7 @@ jsonrpc_session_open_multiple(const struct svec *remotes, bool retry)
     s->seqno = 0;
     s->dscp = 0;
     s->last_error = 0;
-    s->last_echo_reply = 0;
+    s->last_send_timestamp = 0;
 
     jsonrpc_session_set_backlog_threshold(s, 0, 0);
 
@@ -1171,6 +1172,7 @@ int
 jsonrpc_session_send(struct jsonrpc_session *s, struct jsonrpc_msg *msg)
 {
     if (s->rpc) {
+        s->last_send_timestamp = time_msec();
         return jsonrpc_send(s->rpc, msg);
     } else {
         jsonrpc_msg_destroy(msg);
@@ -1207,7 +1209,6 @@ jsonrpc_session_recv(struct jsonrpc_session *s, struct jsonrpc_msg **full_msg)
 
                 reply = jsonrpc_create_reply(json_clone(msg->params), msg->id);
                 jsonrpc_session_send(s, reply);
-                s->last_echo_reply = now;
             } else if (msg->type == JSONRPC_REPLY
                        && msg->id && msg->id->type == JSON_STRING
                        && !strcmp(msg->id->string, "echo")) {
@@ -1224,7 +1225,7 @@ jsonrpc_session_recv(struct jsonrpc_session *s, struct jsonrpc_msg **full_msg)
     return 0;
 }
 
-/* Preemptively send echo reply if we are near the end of the interval. */
+/* Preemptively send an echo reply if needed. */
 void
 jsonrpc_session_gratuitous_echo_reply(struct jsonrpc_session *s)
 {
@@ -1236,8 +1237,7 @@ jsonrpc_session_gratuitous_echo_reply(struct jsonrpc_session *s)
     /* Send it halfway through the probe interval just to be safe. */
     int gratuitous_interval = MAX(1000, probe_interval / 2);
 
-    long long int now = time_msec();
-    if (now < s->last_echo_reply + gratuitous_interval) {
+    if (time_msec() < s->last_send_timestamp + gratuitous_interval) {
         return;
     }
 
@@ -1250,7 +1250,6 @@ jsonrpc_session_gratuitous_echo_reply(struct jsonrpc_session *s)
 
     VLOG_DBG("Sending gratuitous echo reply.");
     jsonrpc_session_send(s, reply);
-    s->last_echo_reply = now;
     COVERAGE_INC(jsonrpc_gratuitous_echo);
 }
 
