@@ -312,11 +312,13 @@ jsonrpc_send(struct jsonrpc *rpc, struct jsonrpc_msg *msg)
 
 /* Attempts to receive a message from 'rpc'.
  *
- * If successful, stores the received message in '*msgp' and returns 0.  The
+ * If successful, stores the received message in '*msgp'.  The
  * caller takes ownership of '*msgp' and must eventually destroy it with
  * jsonrpc_msg_destroy().
  *
  * Otherwise, stores NULL in '*msgp' and returns one of the following:
+ *
+ *   - 0: Message could not be completely received in this batch.
  *
  *   - EAGAIN: No message has been received.
  *
@@ -394,7 +396,7 @@ jsonrpc_recv(struct jsonrpc *rpc, struct jsonrpc_msg **msgp)
      * iterations. We want to know how often we abort for this reason. */
     COVERAGE_INC(jsonrpc_recv_needs_retry);
 
-    return EAGAIN;
+    return 0;
 }
 
 /* Causes the poll loop to wake up when jsonrpc_recv() may return a value other
@@ -443,15 +445,15 @@ jsonrpc_recv_block(struct jsonrpc *rpc, struct jsonrpc_msg **msgp)
 {
     for (;;) {
         int error = jsonrpc_recv(rpc, msgp);
-        if (error != EAGAIN) {
+        if (!*msgp && (error == 0 || error == EAGAIN)) {
+            jsonrpc_run(rpc);
+            jsonrpc_wait(rpc);
+            jsonrpc_recv_wait(rpc);
+            poll_block();
+        } else {
             fatal_signal_run();
             return error;
         }
-
-        jsonrpc_run(rpc);
-        jsonrpc_wait(rpc);
-        jsonrpc_recv_wait(rpc);
-        poll_block();
     }
 }
 

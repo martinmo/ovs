@@ -1497,6 +1497,10 @@ do_monitor__(struct jsonrpc *rpc, const char *database,
                 ovs_fatal(error, "%s: receive failed", server);
             }
 
+            if (!msg) {
+                break;
+            }
+
             if (msg->type == JSONRPC_REQUEST && !strcmp(msg->method, "echo")) {
                 jsonrpc_send(rpc, jsonrpc_create_reply(json_clone(msg->params),
                                                        msg->id));
@@ -2325,6 +2329,10 @@ do_lock(struct jsonrpc *rpc, const char *method, const char *lock)
             goto no_msg;
         } else if (error) {
             ovs_fatal(error, "%s: receive failed", jsonrpc_get_name(rpc));
+        }
+
+        if (!msg) {
+            goto no_msg;
         }
 
         if (msg->type == JSONRPC_REQUEST && !strcmp(msg->method, "echo")) {
