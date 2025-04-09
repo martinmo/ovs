@@ -309,6 +309,64 @@ jsonrpc_send(struct jsonrpc *rpc, struct jsonrpc_msg *msg)
     return rpc->status;
 }
 
+/* Try to read a message chunk from 'rpc'. */
+static int
+jsonrpc_recv_chunk(struct jsonrpc *rpc, struct jsonrpc_msg **msgp)
+{
+    size_t n, used;
+
+    /* Fill our input buffer if it's empty. */
+    if (byteq_is_empty(&rpc->input)) {
+        size_t chunk;
+        int retval;
+
+        chunk = byteq_headroom(&rpc->input);
+        retval = stream_recv(rpc->stream, byteq_head(&rpc->input), chunk);
+        if (retval < 0) {
+            if (retval == -EAGAIN) {
+                return EAGAIN;
+            } else {
+                VLOG_WARN_RL(&rl, "%s: receive error: %s",
+                                rpc->name, ovs_strerror(-retval));
+                jsonrpc_error(rpc, -retval);
+                return rpc->status;
+            }
+        } else if (retval == 0) {
+            jsonrpc_error(rpc, EOF);
+            return EOF;
+        }
+        byteq_advance_head(&rpc->input, retval);
+    }
+
+    /* We have some input.  Feed it into the JSON parser. */
+    if (!rpc->parser) {
+        rpc->parser = json_parser_create(0);
+    }
+    n = byteq_tailroom(&rpc->input);
+    used = json_parser_feed(rpc->parser,
+                            (char *) byteq_tail(&rpc->input), n);
+    byteq_advance_tail(&rpc->input, used);
+
+    /* If we have complete JSON, attempt to parse it as JSON-RPC. */
+    if (json_parser_is_done(rpc->parser)) {
+        *msgp = jsonrpc_parse_received_message(rpc);
+        if (*msgp) {
+            return 0;
+        }
+
+        if (rpc->status) {
+            const struct byteq *q = &rpc->input;
+            if (q->head <= q->size) {
+                stream_report_content(q->buffer, q->head, STREAM_JSONRPC,
+                                        &this_module, rpc->name);
+            }
+            return rpc->status;
+        }
+    }
+
+    return 0;
+}
+
 /* Attempts to receive a message from 'rpc'.
  *
  * If successful, stores the received message in '*msgp' and returns 0.  The
@@ -336,55 +394,11 @@ jsonrpc_recv(struct jsonrpc *rpc, struct jsonrpc_msg **msgp)
     }
 
     for (i = 0; i < 50; i++) {
-        size_t n, used;
-
-        /* Fill our input buffer if it's empty. */
-        if (byteq_is_empty(&rpc->input)) {
-            size_t chunk;
-            int retval;
-
-            chunk = byteq_headroom(&rpc->input);
-            retval = stream_recv(rpc->stream, byteq_head(&rpc->input), chunk);
-            if (retval < 0) {
-                if (retval == -EAGAIN) {
-                    return EAGAIN;
-                } else {
-                    VLOG_WARN_RL(&rl, "%s: receive error: %s",
-                                 rpc->name, ovs_strerror(-retval));
-                    jsonrpc_error(rpc, -retval);
-                    return rpc->status;
-                }
-            } else if (retval == 0) {
-                jsonrpc_error(rpc, EOF);
-                return EOF;
-            }
-            byteq_advance_head(&rpc->input, retval);
-        }
-
-        /* We have some input.  Feed it into the JSON parser. */
-        if (!rpc->parser) {
-            rpc->parser = json_parser_create(0);
-        }
-        n = byteq_tailroom(&rpc->input);
-        used = json_parser_feed(rpc->parser,
-                                (char *) byteq_tail(&rpc->input), n);
-        byteq_advance_tail(&rpc->input, used);
-
-        /* If we have complete JSON, attempt to parse it as JSON-RPC. */
-        if (json_parser_is_done(rpc->parser)) {
-            *msgp = jsonrpc_parse_received_message(rpc);
-            if (*msgp) {
-                return 0;
-            }
-
-            if (rpc->status) {
-                const struct byteq *q = &rpc->input;
-                if (q->head <= q->size) {
-                    stream_report_content(q->buffer, q->head, STREAM_JSONRPC,
-                                          &this_module, rpc->name);
-                }
-                return rpc->status;
-            }
+        int retval = jsonrpc_recv_chunk(rpc, msgp);
+        if (retval == 0 && *msgp) {
+            return 0;
+        } else if (retval != 0) {
+            return retval;
         }
     }
 
