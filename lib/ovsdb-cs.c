@@ -44,6 +44,7 @@ VLOG_DEFINE_THIS_MODULE(ovsdb_cs);
 
 COVERAGE_DEFINE(ovsdb_cs_run_incomplete);
 COVERAGE_DEFINE(ovsdb_cs_run_blocked);
+COVERAGE_DEFINE(ovsdb_cs_run_deadline);
 
 /* Connection state machine.
  *
@@ -699,12 +700,13 @@ ovsdb_cs_run_until(struct ovsdb_cs *cs, struct ovs_list *events,
         }
     }
 
+    bool blocked = false;
     int ret;
     while (time_msec() < deadline) {
         struct jsonrpc_msg *msg = NULL;
         ret = jsonrpc_session_recv_until(cs->session, &msg, deadline);
         if (ret == EAGAIN) {
-            COVERAGE_INC(ovsdb_cs_run_blocked);
+            blocked = true;
             break;
         }
         /* Even if we would not block we might not receive a message for two
@@ -717,6 +719,12 @@ ovsdb_cs_run_until(struct ovsdb_cs *cs, struct ovs_list *events,
         }
     }
     ovs_list_push_back_all(events, &cs->data.events);
+
+    if (blocked) {
+        COVERAGE_INC(ovsdb_cs_run_blocked);
+    } else {
+        COVERAGE_INC(ovsdb_cs_run_deadline);
+    }
 
     if (ret == EAGAIN) {
         return EAGAIN;
