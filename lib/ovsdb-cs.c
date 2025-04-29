@@ -721,8 +721,10 @@ ovsdb_cs_run_until(struct ovsdb_cs *cs, struct ovs_list *events,
     ovs_list_push_back_all(events, &cs->data.events);
 
     if (blocked) {
+        VLOG_DBG("run was blocked");
         COVERAGE_INC(ovsdb_cs_run_blocked);
     } else {
+        VLOG_DBG("run reached deadline");
         COVERAGE_INC(ovsdb_cs_run_deadline);
     }
 

@@ -448,6 +448,7 @@ ovsdb_idl_run(struct ovsdb_idl *idl)
 void
 ovsdb_idl_run_until(struct ovsdb_idl *idl, long long deadline)
 {
+    VLOG_DBG("Entering ovsdb_idl_run_until()");
     ovs_assert(!idl->txn);
 
     struct ovs_list events;
@@ -457,8 +458,11 @@ ovsdb_idl_run_until(struct ovsdb_idl *idl, long long deadline)
         ovsdb_cs_run(idl->cs, &events);
     }
 
+    VLOG_DBG("ovsdb_idl_run_until: received %ld events", ovs_list_size(&events));
+
     struct ovsdb_cs_event *event;
     LIST_FOR_EACH_POP (event, list_node, &events) {
+        VLOG_DBG("ovsdb_idl_run_until: processing event of type %d", event->type);
         switch (event->type) {
         case OVSDB_CS_EVENT_TYPE_RECONNECT:
             ovsdb_idl_txn_abort_all(idl);
@@ -489,6 +493,7 @@ ovsdb_idl_run_until(struct ovsdb_idl *idl, long long deadline)
     ovsdb_idl_reparse_refs_to_inserted(idl);
     ovsdb_idl_reparse_deleted(idl);
     ovsdb_idl_row_destroy_postprocess(idl);
+    VLOG_DBG("Leaving ovsdb_idl_run_until()");
 }
 
 /* Arranges for poll_block() to wake up when ovsdb_idl_run() has something to
@@ -4391,6 +4396,7 @@ struct ovsdb_idl_txn *
 ovsdb_idl_loop_run_until(struct ovsdb_idl_loop *loop, long long deadline)
 {
     if (deadline) {
+        VLOG_DBG("Entering ovsdb_idl_loop_run_until()");
         ovsdb_idl_run_until(loop->idl, deadline);
     } else {
         ovsdb_idl_run(loop->idl);
@@ -4398,6 +4404,7 @@ ovsdb_idl_loop_run_until(struct ovsdb_idl_loop *loop, long long deadline)
 
     /* See if the 'committing_txn' succeeded in the meantime. */
     if (loop->committing_txn && loop->committing_txn->status == TXN_SUCCESS) {
+        VLOG_DBG("ovsdb_idl_loop_run_until: committing_txn succeeded in the meantime");
         ovsdb_idl_try_commit_loop_txn(loop, NULL);
     }
 
@@ -4406,7 +4413,11 @@ ovsdb_idl_loop_run_until(struct ovsdb_idl_loop *loop, long long deadline)
                       ? NULL
                       : ovsdb_idl_txn_create(loop->idl));
     if (loop->open_txn) {
+        VLOG_DBG("ovsdb_idl_loop_run_until: open_txn = true");
         ovsdb_idl_txn_add_comment(loop->open_txn, "%s", program_name);
+    }
+    if (deadline) {
+        VLOG_DBG("Leaving ovsdb_idl_loop_run_until()");
     }
     return loop->open_txn;
 }
